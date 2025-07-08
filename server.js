@@ -1,58 +1,54 @@
+const express = require("express");
+const bodyParser = require("body-parser");
+const axios = require("axios");
+const crypto = require("crypto");
+const cors = require("cors");
 
-require('dotenv').config();
-const express = require('express');
-const crypto = require('crypto');
-const cors = require('cors');
 const app = express();
-
-app.use(express.json());
 app.use(cors());
+app.use(bodyParser.json());
 
-const { OPAY_WEBSITE_ID, OPAY_SIGNATURE_PASSWORD, ALLOWED_DOMAIN } = process.env;
+const WEBSITE_ID = "8W22585YXJ";
+const USER_ID = "8U22584SNF";
+const SIGNATURE_PASSWORD = "24a4e5b1e2e59e8bbf19001ef2854fa3";
 
-function generateSignature(params) {
-  const keys = Object.keys(params).sort();
-  const str = keys.map(k => `${k}=${params[k]}`).join('&') + OPAY_SIGNATURE_PASSWORD;
-  return crypto.createHash('md5').update(str).digest('hex');
+const OPAY_API_URL = "https://opay.lt/pay";
+const REDIRECT_BASE = "https://opay.lt/pay";
+
+function generateSignature(params, password) {
+  const sortedKeys = Object.keys(params).sort();
+  const sortedParams = sortedKeys.map((key) => `${key}=${params[key]}`).join("&");
+  const stringToSign = sortedParams + password;
+  return crypto.createHash("md5").update(stringToSign).digest("hex");
 }
 
-app.post('/api/opay-payment', (req, res) => {
-  const o = req.body;
+app.post("/api/opay-payment", async (req, res) => {
+  const { amount, currency, order_id, return_url, cancel_url } = req.body;
+
+  const amountCents = Math.round(parseFloat(amount) * 100);
+
   const data = {
-    version: "1.6",
-    projectid: OPAY_WEBSITE_ID,
-    orderid: o.id,
-    amount: Math.round(o.amount * 100),
-    currency: "EUR",
-    country: "LT",
-    accepturl: `https://${ALLOWED_DOMAIN}/payment-success`,
-    cancelurl: `https://${ALLOWED_DOMAIN}/payment-cancel`,
-    callbackurl: `https://${ALLOWED_DOMAIN}/api/opay-callback`,
-    payment: "",
-    lang: "LIT",
+    projectid: WEBSITE_ID,
+    orderid: order_id,
+    amount: amountCents,
+    currency: currency,
+    accepturl: return_url,
+    cancelurl: cancel_url,
+    callbackurl: "https://fleksas.lt/api/opay-callback",
     test: 0,
-    user_email: o.email,
-    p_firstname: o.firstName,
-    p_lastname: o.lastName
   };
-  data.sign = generateSignature(data);
-  const url = `https://opay.lt/pay?${new URLSearchParams(data).toString()}`;
-  res.json({ redirectUrl: url });
+
+  const sign = generateSignature(data, SIGNATURE_PASSWORD);
+  data.sign = sign;
+
+  const redirectUrl = `${REDIRECT_BASE}?${Object.entries(data)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+    .join("&")}`;
+
+  res.json({ redirectUrl });
 });
 
-app.post('/api/opay-callback', (req, res) => {
-  const received = req.body;
-  const sign = received.sign;
-  delete received.sign;
-  if (sign === generateSignature(received)) {
-    console.log("Patvirtintas: ", received.orderid);
-    res.send("OK");
-  } else {
-    console.error("Netinkamas sign");
-    res.status(400).send("Bad signature");
-  }
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
-
-app.listen(process.env.PORT || 3000, () =>
-  console.log(`Serveris veikia per portą ${process.env.PORT || 3000}`)
-);
